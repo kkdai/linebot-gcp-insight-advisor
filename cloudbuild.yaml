@@ -22,7 +22,7 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'LINE_CHANNEL_ACCESS_TOKEN=${_LINE_ACCESS_TOKEN},LINE_CHANNEL_SECRET=${_LINE_SECRET}'
+      - 'LINE_CHANNEL_ACCESS_TOKEN=${_LINE_ACCESS_TOKEN},LINE_CHANNEL_SECRET=${_LINE_SECRET},GOOGLE_API_KEY=${_GOOGLE_API_KEY}'
 
 images:
   - 'gcr.io/$PROJECT_ID/linebot-gcp-insight-advisor:$SHORT_SHA'
@@ -30,3 +30,4 @@ images:
 substitutions:
   _LINE_ACCESS_TOKEN: 'placeholder'
   _LINE_SECRET: 'placeholder'
+  _GOOGLE_API_KEY: 'placeholder'
