@@ -1,8 +1,15 @@
 import os
-from fastapi import FastAPI, Request, HTTPException
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    Configuration,
+    AsyncApiClient,
+    AsyncMessagingApi,
+    ReplyMessageRequest,
+    TextMessage as LineTextMessage
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from agent import insight_agent
 from google.adk.apps import App
 from google.adk.runners import Runner
@@ -15,7 +22,7 @@ app = FastAPI()
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "YOUR_LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "YOUR_LINE_CHANNEL_SECRET")
 
-line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # 初始化 ADK 組件
@@ -39,13 +46,17 @@ async def callback(request: Request):
     
     return "OK"
 
-@handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
+@handler.add(MessageEvent, message=TextMessageContent)
+def handle_message(event: MessageEvent):
+    # 因為 WebhookHandler.handle 是同步的，我們使用 BackgroundTasks 或 asyncio.create_task 處理
     import asyncio
+    asyncio.create_task(process_message_async(event))
+
+async def process_message_async(event: MessageEvent):
     user_text = event.message.text
     user_id = event.source.user_id
-    # LINE webhook 是同步呼叫，我們需要建立一個新的事件迴圈來跑非同步的 ADK
-    
+    reply_token = event.reply_token
+
     async def get_adk_response():
         reply_parts = []
         async with Runner(app=adk_app, session_service=session_service) as runner:
@@ -61,17 +72,18 @@ def handle_message(event):
         return "".join(reply_parts) if reply_parts else "Agent 沒有返回任何內容。"
 
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        reply_text = loop.run_until_complete(get_adk_response())
-        loop.close()
+        reply_text = await get_adk_response()
     except Exception as e:
         reply_text = f"分析過程中發生錯誤：{str(e)}"
     
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
+    async with AsyncApiClient(configuration) as api_client:
+        line_bot_api = AsyncMessagingApi(api_client)
+        await line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=[LineTextMessage(text=reply_text)]
+            )
+        )
 
 if __name__ == "__main__":
     import uvicorn
